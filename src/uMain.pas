@@ -80,7 +80,7 @@ begin
        SObjectSource := String(IDE_GetObjectSource(AObjectType, AObjectOwner, AObjectName));
     end;
 
-    if not (SObjectSource = '') then
+    if not (SObjectSource = '') and not (SObjectName = '') then
       SaveFile(Before, SDatabase, SObjectOwner,
                SObjectType, SObjectName, SObjectSource, FileExt);
   except
