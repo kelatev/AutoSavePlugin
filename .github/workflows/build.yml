@@ -24,12 +24,23 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Test
-        if: matrix.rid == 'win-x64'
-        run: dotnet test AutoSavePlugin.slnx -c Release
+      # v2.1.0 tag -> 2.1.0; other builds -> 0.0.0-ci.<run number>
+      - name: Version
+        run: |
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { "0.0.0-ci.$env:GITHUB_RUN_NUMBER" }
+          "VERSION=$version" >> $env:GITHUB_ENV
+          Write-Host "Version: $version"
 
       - name: Publish native DLL
-        run: dotnet publish AutoSavePlugin/AutoSavePlugin.csproj -c Release -r ${{ matrix.rid }} -o publish
+        run: dotnet publish AutoSavePlugin/AutoSavePlugin.csproj -c Release -r ${{ matrix.rid }} -o publish -p:Version=${{ env.VERSION }}
+
+      # Unit tests plus integration tests that load the published DLL like PL/SQL Developer does.
+      # The test process is 64-bit, so the native DLL can only be loaded in the x64 job.
+      - name: Test
+        if: matrix.rid == 'win-x64'
+        run: dotnet test --solution AutoSavePlugin.slnx -c Release -p:Version=${{ env.VERSION }}
+        env:
+          AUTOSAVE_PLUGIN_DLL: publish/AutoSavePlugin.dll
 
       - name: Rename
         run: Copy-Item publish/AutoSavePlugin.dll ${{ matrix.dll }}

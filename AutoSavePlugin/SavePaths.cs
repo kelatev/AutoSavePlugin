@@ -6,7 +6,7 @@ namespace AutoSavePlugin;
 /// <remarks>
 /// Kept free of IDE and Win32 calls so it can be covered by unit tests
 /// (see AutoSavePlugin.Tests). Saved files are laid out as
-/// <c>root\database\owner\type\name\timestamp\Before|After\name.sql|pck</c>.
+/// <c>root\database\owner\type\name\timestamp\Before|After\name.ext</c>.
 /// </remarks>
 public static class SavePaths
 {
@@ -41,46 +41,81 @@ public static class SavePaths
     public static string Timestamp(DateTime time) =>
         time.ToString("yyyy'.'MM'.'dd HH'-'mm'-'ss'.'fff", CultureInfo.InvariantCulture);
 
-    /// <summary>Package spec and body are stored together in one .pck file.</summary>
-    public static bool IsPackage(string objectType) =>
-        objectType is "PACKAGE" or "PACKAGE BODY";
+    /// <summary>
+    /// Spec and body object types for packages and object types, which are always saved
+    /// together in one file whichever part is being compiled; null for any other type.
+    /// </summary>
+    public static (string Spec, string Body)? SpecAndBody(string objectType) => objectType switch
+    {
+        "PACKAGE" or "PACKAGE BODY" => ("PACKAGE", "PACKAGE BODY"),
+        "TYPE" or "TYPE BODY" => ("TYPE", "TYPE BODY"),
+        _ => null,
+    };
 
-    /// <summary>Full path of the file for one saved copy of an object.</summary>
+    /// <summary>Type used for the folder name: spec and body share the folder of the spec.</summary>
+    public static string FolderType(string objectType) =>
+        SpecAndBody(objectType)?.Spec ?? objectType;
+
+    /// <summary>
+    /// Type name PL/SQL Developer uses for its file extension setting
+    /// (Preferences > Files > Extensions), e.g. "PACKAGE SPEC AND BODY".
+    /// </summary>
+    public static string ExtensionType(string objectType) =>
+        SpecAndBody(objectType) is { } pair ? pair.Spec + " SPEC AND BODY" : objectType;
+
+    /// <summary>PL/SQL Developer's default extension, used when the IDE does not report one.</summary>
+    public static string DefaultExtension(string objectType) => FolderType(objectType) switch
+    {
+        "PACKAGE" => "pck",
+        "TYPE" => "typ",
+        "FUNCTION" => "fnc",
+        "PROCEDURE" => "prc",
+        "TRIGGER" => "trg",
+        "JAVA SOURCE" => "jsp",
+        _ => "sql",
+    };
+
+    /// <summary>Folder holding all saved versions of one object.</summary>
     /// <param name="root">Root folder from the plug-in preferences.</param>
     /// <param name="database">Database (TNS alias or connect string) of the window's connection.</param>
     /// <param name="owner">Schema that owns the object.</param>
     /// <param name="objectType">Object type as reported by the IDE, e.g. "PROCEDURE" or "PACKAGE BODY".</param>
     /// <param name="objectName">Object name.</param>
-    /// <param name="timestamp">Execution timestamp from <see cref="Timestamp"/>.</param>
-    /// <param name="before">true for the copy taken before compilation, false for the one after.</param>
-    public static string FilePath(string root, string database, string owner, string objectType,
-                                  string objectName, string timestamp, bool before)
-    {
-        // Spec and body of a package share one folder and one .pck file, the same format
-        // PL/SQL Developer uses when it saves a package to a file.
-        var type = IsPackage(objectType) ? "PACKAGE" : objectType;
-        var extension = IsPackage(objectType) ? "pck" : "sql";
-
-        var folder = Path.Combine(
+    public static string ObjectFolder(string root, string database, string owner, string objectType,
+                                      string objectName) =>
+        Path.Combine(
             root.TrimEnd('\\', '/'),
             SafeName(database),
             SafeName(owner),
-            SafeName(type),
-            SafeName(objectName),
+            SafeName(FolderType(objectType)),
+            SafeName(objectName));
+
+    /// <summary>Full path of the file for one saved copy of an object.</summary>
+    /// <param name="objectFolder">Result of <see cref="ObjectFolder"/>.</param>
+    /// <param name="objectName">Object name, also used as the file name.</param>
+    /// <param name="extension">File extension without the dot.</param>
+    /// <param name="timestamp">Execution timestamp from <see cref="Timestamp"/>.</param>
+    /// <param name="before">true for the copy taken before compilation, false for the one after.</param>
+    public static string FilePath(string objectFolder, string objectName, string extension,
+                                  string timestamp, bool before) =>
+        Path.Combine(
+            objectFolder,
             timestamp,
-            before ? "Before" : "After");
+            before ? "Before" : "After",
+            SafeName(objectName) + "." + SafeName(extension.TrimStart('.')));
 
-        return Path.Combine(folder, SafeName(objectName) + "." + extension);
-    }
-
-    /// <summary>Joins package spec and body with a "/" line between them.</summary>
+    /// <summary>Joins spec and body with a "/" line between them.</summary>
     /// <remarks>
     /// Trailing blank lines of the spec are dropped so "/" always sits on its own line,
     /// which is what SQL*Plus and PL/SQL Developer need to run the file as two statements.
+    /// An object without a body (common for types) is saved as just the spec.
     /// Works on raw bytes to keep the IDE's encoding untouched.
     /// </remarks>
-    public static byte[] JoinPackage(ReadOnlySpan<byte> spec, ReadOnlySpan<byte> body)
+    public static byte[] JoinSpecAndBody(ReadOnlySpan<byte> spec, ReadOnlySpan<byte> body)
     {
+        if (body.IsEmpty)
+            return spec.ToArray();
+
         var end = spec.Length;
         while (end > 0 && spec[end - 1] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')
             end--;

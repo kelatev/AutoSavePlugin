@@ -1,0 +1,10 @@
+# Text files are stored with LF in the repository and checked out with CRLF (Windows-only project)
+* text=auto eol=crlf
+
+# Binary files are never converted
+*.dll binary
+*.exe binary
+*.pdb binary
+*.png binary
+*.ico binary
+*.pdf binary

@@ -17,9 +17,12 @@ internal static unsafe class Ide
 {
     // Callback indexes from the PL/SQL Developer plug-in API.
     // Older IDE versions may not provide the newer ones (240, 245), hence Has() checks.
+    private const int SysVersionIx = 1;            // SYS_Version: IDE version, e.g. 1700 for 17.0
     private const int GetConnectionInfoIx = 12;    // IDE_GetConnectionInfo: main connection
-    private const int GetAppHandleIx = 15;         // IDE_GetAppHandle: main window, parent for dialogs
+    private const int GetAppHandleIx = 15;         // IDE_GetAppHandle: Application handle
+    private const int GetWindowHandleIx = 16;      // IDE_GetWindowHandle: main window, parent for dialogs
     private const int GetObjectSourceIx = 79;      // IDE_GetObjectSource: source text from the database
+    private const int GetProcEditExtensionIx = 109; // IDE_GetProcEditExtension: file extension per object type
     private const int GetWindowObjectIx = 110;     // IDE_GetWindowObject: object of the current window
     private const int DebugLogIx = 173;            // IDE_DebugLog: line in the IDE debug log
     private const int GetPrefAsStringIx = 212;     // IDE_GetPrefAsString: read plug-in preference
@@ -42,9 +45,38 @@ internal static unsafe class Ide
 
     private static bool Has(int index) => Callbacks[index] != 0;
 
+    // Address of a callback the plug-in cannot work without. Calling address 0 would be an
+    // access violation that kills the IDE; an exception is caught by Exports.Guard instead.
+    private static nint Required(int index) =>
+        Callbacks[index] != 0
+            ? Callbacks[index]
+            : throw new InvalidOperationException($"IDE callback {index} is not available");
+
+    /// <summary>IDE version as major * 100 + minor (1200 = 12.0), or 0 if unknown.</summary>
+    public static int SysVersion() =>
+        Has(SysVersionIx) ? ((delegate* unmanaged[Cdecl]<int>)Callbacks[SysVersionIx])() : 0;
+
     /// <summary>Handle of the IDE main window, used as the owner of the plug-in dialogs.</summary>
-    public static nint AppHandle() =>
-        Has(GetAppHandleIx) ? ((delegate* unmanaged[Cdecl]<int>)Callbacks[GetAppHandleIx])() : 0;
+    /// <remarks>Window handles fit in 32 bits even on x64, so the API returns them as Integer.</remarks>
+    public static nint MainWindow()
+    {
+        if (Has(GetWindowHandleIx))
+            return ((delegate* unmanaged[Cdecl]<int>)Callbacks[GetWindowHandleIx])();
+        return Has(GetAppHandleIx) ? ((delegate* unmanaged[Cdecl]<int>)Callbacks[GetAppHandleIx])() : 0;
+    }
+
+    /// <summary>
+    /// File extension configured in the IDE for an object type (without the dot),
+    /// or "" if the IDE does not provide it. Accepts the "... SPEC AND BODY" types.
+    /// </summary>
+    public static string GetProcEditExtension(string objectType)
+    {
+        if (!Has(GetProcEditExtensionIx))
+            return "";
+        using var type = new AnsiString(objectType);
+        var extension = ((delegate* unmanaged[Cdecl]<byte*, byte*>)Callbacks[GetProcEditExtensionIx])(type.Pointer);
+        return Decode(extension).Trim().TrimStart('.');
+    }
 
     /// <summary>Writes a line to the IDE debug log.</summary>
     public static void DebugLog(string message)
@@ -61,7 +93,7 @@ internal static unsafe class Ide
         // The IDE fills the pointers with strings it owns; they are copied right away
         // and must not be freed. SubObject (e.g. a procedure inside a package) is not needed.
         byte* type = null, owner = null, name = null, subObject = null;
-        var ok = ((delegate* unmanaged[Cdecl]<byte**, byte**, byte**, byte**, int>)Callbacks[GetWindowObjectIx])(
+        var ok = ((delegate* unmanaged[Cdecl]<byte**, byte**, byte**, byte**, int>)Required(GetWindowObjectIx))(
             &type, &owner, &name, &subObject);
         if (ok == 0)
             return null;
@@ -87,7 +119,7 @@ internal static unsafe class Ide
                 return Decode(database);
         }
 
-        ((delegate* unmanaged[Cdecl]<byte**, byte**, byte**, void>)Callbacks[GetConnectionInfoIx])(
+        ((delegate* unmanaged[Cdecl]<byte**, byte**, byte**, void>)Required(GetConnectionInfoIx))(
             &username, &password, &database);
         return Decode(database);
     }
@@ -102,7 +134,7 @@ internal static unsafe class Ide
         using var t = new AnsiString(objectType);
         using var o = new AnsiString(owner);
         using var n = new AnsiString(name);
-        var source = ((delegate* unmanaged[Cdecl]<byte*, byte*, byte*, byte*>)Callbacks[GetObjectSourceIx])(
+        var source = ((delegate* unmanaged[Cdecl]<byte*, byte*, byte*, byte*>)Required(GetObjectSourceIx))(
             t.Pointer, o.Pointer, n.Pointer);
         return source == null ? [] : MemoryMarshal.CreateReadOnlySpanFromNullTerminated(source).ToArray();
     }
@@ -115,7 +147,7 @@ internal static unsafe class Ide
         using var set = new AnsiString("");
         using var key = new AnsiString(name);
         using var def = new AnsiString(defaultValue);
-        var value = ((delegate* unmanaged[Cdecl]<int, byte*, byte*, byte*, byte*>)Callbacks[GetPrefAsStringIx])(
+        var value = ((delegate* unmanaged[Cdecl]<int, byte*, byte*, byte*, byte*>)Required(GetPrefAsStringIx))(
             PlugInId, set.Pointer, key.Pointer, def.Pointer);
         return Decode(value);
     }
@@ -126,7 +158,7 @@ internal static unsafe class Ide
         using var set = new AnsiString("");
         using var key = new AnsiString(name);
         using var val = new AnsiString(value);
-        ((delegate* unmanaged[Cdecl]<int, byte*, byte*, byte*, int>)Callbacks[SetPrefAsStringIx])(
+        ((delegate* unmanaged[Cdecl]<int, byte*, byte*, byte*, int>)Required(SetPrefAsStringIx))(
             PlugInId, set.Pointer, key.Pointer, val.Pointer);
     }
 

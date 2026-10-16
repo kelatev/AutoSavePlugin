@@ -9,6 +9,11 @@
     <AssemblyName>AutoSavePlugin</AssemblyName>
     <RootNamespace>AutoSavePlugin</RootNamespace>
 
+    <!-- Overridden by CI from the release tag (-p:Version=...) -->
+    <Version>0.0.0-dev</Version>
+    <Product>AutoSavePlugin</Product>
+    <Description>PL/SQL Developer plug-in that saves sources before and after compilation</Description>
+
     <!-- PL/SQL Developer loads plug-ins as plain native DLLs -->
     <!-- NativeAOT compiles the code and the runtime into one native DLL;
          no .NET installation is needed on the user's machine -->

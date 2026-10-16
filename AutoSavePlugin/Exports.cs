@@ -28,7 +28,12 @@ internal static class Exports
     // so they are allocated once in unmanaged memory and never freed.
     private static readonly nint Description = Marshal.StringToHGlobalAnsi("AutoSavePlugin");
     private static readonly nint AboutText = Marshal.StringToHGlobalAnsi(
-        "AutoSavePlugin\r\nSaves sources of program windows before and after compilation.");
+        $"AutoSavePlugin {PluginVersion.Current}\r\n" +
+        "Saves sources of program windows before and after compilation.\r\n" +
+        "https://github.com/kelatev/AutoSavePlugin");
+
+    // Menu texts by content; the IDE may ask for the same index again when menus are rebuilt
+    private static readonly Dictionary<string, nint> MenuTexts = [];
 
     // Plug-In identification, a unique identifier is received and the description is returned.
     // The identifier is needed later to read and write this plug-in's preferences.
@@ -51,6 +56,31 @@ internal static class Exports
     // Called by the Configure button in the Plug-In configuration dialog
     [UnmanagedCallersOnly(EntryPoint = "Configure", CallConvs = [typeof(CallConvCdecl)])]
     public static void Configure() => Guard(AutoSaver.Configure);
+
+    // Called for every index from 1 to 99; a non-empty text creates a menu item (see Menu).
+    // Runs after RegisterCallback, so the IDE version is already available.
+    [UnmanagedCallersOnly(EntryPoint = "CreateMenuItem", CallConvs = [typeof(CallConvCdecl)])]
+    public static nint CreateMenuItem(int index)
+    {
+        try
+        {
+            var text = Menu.Item(index, Ide.SysVersion());
+            if (!MenuTexts.TryGetValue(text, out var pointer))
+            {
+                pointer = Marshal.StringToHGlobalAnsi(text);
+                MenuTexts[text] = pointer;
+            }
+            return pointer;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    // Called when the user clicks a menu item created by CreateMenuItem
+    [UnmanagedCallersOnly(EntryPoint = "OnMenuClick", CallConvs = [typeof(CallConvCdecl)])]
+    public static void OnMenuClick(int index) => Guard(() => Menu.Click(index));
 
     // Called before a window is executed (e.g. F8 in a Program Window compiles the object).
     // The result is a Bool: returning false (0) would cancel the execution, and a backup

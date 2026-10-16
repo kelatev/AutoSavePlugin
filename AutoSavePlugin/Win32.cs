@@ -12,9 +12,13 @@ namespace AutoSavePlugin;
 internal static unsafe partial class Win32
 {
     // MessageBox flags and result
+    private const uint MB_OK = 0x00;
     private const uint MB_YESNO = 0x04;
     private const uint MB_ICONQUESTION = 0x20;
+    private const uint MB_ICONINFORMATION = 0x40;
     private const int IDYES = 6;
+
+    private const int SW_SHOWNORMAL = 1;
 
     // SHBrowseForFolder flags: only real file system folders, a text box to type or paste
     // a path, and the resizable dialog with a "Make New Folder" button
@@ -32,6 +36,19 @@ internal static unsafe partial class Win32
     /// <summary>Modal Yes/No question; true when the user answered Yes.</summary>
     public static bool AskYesNo(nint owner, string text, string caption) =>
         MessageBoxW(owner, text, caption, MB_YESNO | MB_ICONQUESTION) == IDYES;
+
+    /// <summary>Modal message with an OK button.</summary>
+    public static void ShowInfo(nint owner, string text, string caption) =>
+        MessageBoxW(owner, text, caption, MB_OK | MB_ICONINFORMATION);
+
+    /// <summary>Opens a folder in Windows Explorer.</summary>
+    public static void OpenFolder(nint owner, string path)
+    {
+        // ShellExecute returns a value greater than 32 on success
+        var result = ShellExecuteW(owner, "open", path, null, null, SW_SHOWNORMAL);
+        if (result <= 32)
+            throw new InvalidOperationException($"Cannot open folder {path} (error {result})");
+    }
 
     /// <summary>Shows the folder picker; returns null when cancelled.</summary>
     /// <param name="owner">Parent window, so the dialog stays on top of the IDE.</param>
@@ -115,6 +132,10 @@ internal static unsafe partial class Win32
 
     [LibraryImport("user32.dll")]
     private static partial nint SendMessageW(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial nint ShellExecuteW(nint hwnd, string operation, string file,
+                                              string? parameters, string? directory, int showCmd);
 
     [LibraryImport("shell32.dll")]
     private static partial nint SHBrowseForFolderW(BROWSEINFOW* info);
