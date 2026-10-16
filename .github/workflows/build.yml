@@ -17,15 +17,12 @@ jobs:
             dll: AutoSavePlugin_64.dll
           - rid: win-x86
             dll: AutoSavePlugin_32.dll
-    defaults:
-      run:
-        working-directory: dotnet
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-dotnet@v4
         with:
-          global-json-file: dotnet/global.json
+          global-json-file: global.json
 
       - name: Test
         if: matrix.rid == 'win-x64'
@@ -40,7 +37,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.dll }}
-          path: dotnet/${{ matrix.dll }}
+          path: ${{ matrix.dll }}
           if-no-files-found: error
 
   release:
