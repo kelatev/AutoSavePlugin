@@ -1,0 +1,60 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            dll: AutoSavePlugin_64.dll
+          - rid: win-x86
+            dll: AutoSavePlugin_32.dll
+    defaults:
+      run:
+        working-directory: dotnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: dotnet/global.json
+
+      - name: Test
+        if: matrix.rid == 'win-x64'
+        run: dotnet test AutoSavePlugin.slnx -c Release
+
+      - name: Publish native DLL
+        run: dotnet publish AutoSavePlugin/AutoSavePlugin.csproj -c Release -r ${{ matrix.rid }} -o publish
+
+      - name: Rename
+        run: Copy-Item publish/AutoSavePlugin.dll ${{ matrix.dll }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.dll }}
+          path: dotnet/${{ matrix.dll }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: AutoSavePlugin_*.dll
+          generate_release_notes: true

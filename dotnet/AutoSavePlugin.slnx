@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AutoSavePlugin/AutoSavePlugin.csproj" />
+  <Project Path="AutoSavePlugin.Tests/AutoSavePlugin.Tests.csproj" />
+</Solution>
