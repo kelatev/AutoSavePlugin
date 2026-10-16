@@ -4,13 +4,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Function pointers and raw pointers are needed to call the IDE callbacks -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>AutoSavePlugin</AssemblyName>
     <RootNamespace>AutoSavePlugin</RootNamespace>
 
     <!-- PL/SQL Developer loads plug-ins as plain native DLLs -->
+    <!-- NativeAOT compiles the code and the runtime into one native DLL;
+         no .NET installation is needed on the user's machine -->
     <PublishAot>true</PublishAot>
+    <!-- Build a DLL with exports (UnmanagedCallersOnly) instead of an executable -->
     <NativeLib>Shared</NativeLib>
+    <!-- Drop culture data (ICU) and long exception messages: smaller DLL, nothing here needs them -->
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <OptimizationPreference>Size</OptimizationPreference>
