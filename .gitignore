@@ -4,10 +4,3 @@ obj/
 publish/
 *.user
 .vs/
-
-# Delphi
-*.dcu
-*.rsm
-*.dproj.local
-*.identcache
-__history/

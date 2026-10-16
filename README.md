@@ -21,5 +21,3 @@ dotnet publish AutoSavePlugin/AutoSavePlugin.csproj -c Release -r win-x64 -o pub
 ```
 
 GitHub Actions builds both DLLs on every push; pushing a `v*` tag creates a release with them.
-
-The original Delphi 12 version is in `src/`.
