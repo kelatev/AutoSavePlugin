@@ -7,20 +7,22 @@ interface
 
 uses
   Windows, Vcl.Forms, PlugInIntf, SysUtils, Vcl.Dialogs,
-  System.UITypes, System.Classes, DateUtils;
+  System.UITypes, System.Classes;
 
 const // Description of this Plug-In (as displayed in Plug-In configuration dialog)
   Desc: AnsiString = 'AutoSavePlugin';
+  AboutText: AnsiString = 'AutoSavePlugin';
 
 var
-  Time: String;
+  FixTime: String;  // Timestamp shared by the Before and After copies of one execution
+  SavePath: String; // Root folder resolved once per execution
 
 procedure FileFixation(Before: Bool);
 procedure TimeFixation();
 procedure SaveFile(Before: Bool; Database: String; ObjectOwner: String;
                    ObjectType: String; ObjectName: String;
                    ObjectSource: String; FileExt: String);
-function GetPrefPath(): AnsiString;
+function GetPrefPath(): String;
 
 implementation
 
@@ -37,8 +39,14 @@ end;
 
 function BeforeExecuteWindow(WindowType: Integer): Bool; cdecl;
 begin
-  TimeFixation();
-  FileFixation(True);
+  try
+    TimeFixation();
+    SavePath := GetPrefPath();
+    FileFixation(True);
+  except
+    on E: Exception do
+      IDE_DebugLog(PAnsiChar(AnsiString('AutoSavePlugin: ' + E.Message)));
+  end;
   Result := True;
 end;
 
@@ -48,20 +56,55 @@ begin
      FileFixation(False);
 end;
 
+// Replaces characters that are not allowed in file and folder names
+// (e.g. "host:1521/service" connection strings)
+function SafeName(const S: String): String;
+const
+  Bad = '\/:*?"<>|';
+var
+  i: Integer;
+begin
+  Result := Trim(S);
+  for i := 1 to Length(Result) do
+    if (Result[i] < ' ') or (Pos(Result[i], Bad) > 0) then
+      Result[i] := '_';
+  if Result = '' then
+    Result := '_';
+end;
+
+// Database of the connection used by the current window
+function GetWindowDatabase(): String;
+var
+  AUsername, APassword, ADatabase, AConnectAs: PAnsiChar;
+begin
+  AUsername := nil; APassword := nil; ADatabase := nil; AConnectAs := nil;
+  if Assigned(IDE_GetWindowConnection) and Assigned(IDE_GetConnectionInfoEx) and
+     IDE_GetConnectionInfoEx(IDE_GetWindowConnection(), AUsername, APassword,
+                             ADatabase, AConnectAs) then
+    Result := String(ADatabase)
+  else
+  begin
+    IDE_GetConnectionInfo(AUsername, APassword, ADatabase);
+    Result := String(ADatabase);
+  end;
+end;
+
 procedure FileFixation(Before: Bool);
 var
-  AUsername, APassword, ADatabase: PAnsiChar;
   AObjectType, AObjectOwner, AObjectName, ASubObject: PAnsiChar;
 
   SDatabase, SObjectOwner, SObjectType, SObjectName, FileExt: String;
   SObjectSource: String;
 begin
-  IDE_DebugLog('FileFixation');
+  if SavePath = '' then
+    Exit;
 
   try
-    IDE_GetConnectionInfo(AUsername, APassword, ADatabase);
-    SDatabase := String(ADatabase);
-    IDE_GetWindowObject(AObjectType, AObjectOwner, AObjectName, ASubObject);
+    AObjectType := nil; AObjectOwner := nil; AObjectName := nil; ASubObject := nil;
+    if not IDE_GetWindowObject(AObjectType, AObjectOwner, AObjectName, ASubObject) then
+      Exit;
+
+    SDatabase := GetWindowDatabase();
     SObjectOwner := String(AObjectOwner);
     SObjectType := String(AObjectType);
     SObjectName := String(AObjectName);
@@ -69,10 +112,9 @@ begin
     begin
        FileExt := 'pck';
        SObjectType := 'PACKAGE';
-       SObjectSource := String(IDE_GetObjectSource('PACKAGE', AObjectOwner, AObjectName));
-       SObjectSource := SObjectSource + '/' + AnsiString(#13#10);
+       SObjectSource := TrimRight(String(IDE_GetObjectSource('PACKAGE', AObjectOwner, AObjectName)));
+       SObjectSource := SObjectSource + #13#10 + '/' + #13#10;
        SObjectSource := SObjectSource + String(IDE_GetObjectSource('PACKAGE BODY', AObjectOwner, AObjectName));
-
     end
     else
     begin
@@ -84,124 +126,63 @@ begin
       SaveFile(Before, SDatabase, SObjectOwner,
                SObjectType, SObjectName, SObjectSource, FileExt);
   except
-
+    on E: Exception do
+      IDE_DebugLog(PAnsiChar(AnsiString('AutoSavePlugin: ' + E.Message)));
   end;
 end;
 
 procedure TimeFixation();
-var
-  today : TDateTime;
-  lYear, lMonth, lDay: Word;
-  lHour, lMin, lSec, lMilli: Word;
 begin
-  today := Now;
-  DecodeDateTime(today, lYear, lMonth, lDay,
-                 lHour, lMin, lSec, lMilli);
-
-  Time := IntToStr(lYear);
-  if lMonth < 10 then
-    Time := Time + '.0' + IntToStr(lMonth)
-  else
-    Time := Time + '.' + IntToStr(lMonth);
-  if lDay < 10 then
-    Time := Time + '.0' + IntToStr(lDay)
-  else
-    Time := Time + '.' + IntToStr(lDay);
-  if lHour < 10 then
-    Time := Time + ' 0' + IntToStr(lHour)
-  else
-    Time := Time + ' ' + IntToStr(lHour);
-  if lMin < 10 then
-    Time := Time + '-0' + IntToStr(lMin)
-  else
-    Time := Time + '-' + IntToStr(lMin);
-  if lSec < 10 then
-    Time := Time + '-0' + IntToStr(lSec)
-  else
-    Time := Time + '-' + IntToStr(lSec);
-  Time := Time + '.' + IntToStr(lMilli);
+  FixTime := FormatDateTime('yyyy"."mm"."dd hh"-"nn"-"ss"."zzz', Now);
 end;
 
 procedure SaveFile(Before: Bool; Database: String; ObjectOwner: String;
                    ObjectType: String; ObjectName: String;
                    ObjectSource: String; FileExt: String);
 var
-  AtionType: String;
+  ActionType: String;
   Path: String;
   Filename: String;
 begin
-  if Before = True then
-    begin
-       AtionType := 'Before';
-    end
+  if Before then
+    ActionType := 'Before'
   else
-    begin
-      AtionType := 'After';
-    end;
-  Path := String(GetPrefPath());
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
+    ActionType := 'After';
 
-  Path := Path + '\' + Database;
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
+  Path := ExcludeTrailingPathDelimiter(SavePath) + '\' +
+          SafeName(Database) + '\' +
+          SafeName(ObjectOwner) + '\' +
+          SafeName(ObjectType) + '\' +
+          SafeName(ObjectName) + '\' +
+          FixTime + '\' +
+          ActionType;
+  if not ForceDirectories(Path) then
+    raise Exception.Create('Cannot create folder ' + Path);
 
-  Path := Path + '\' + ObjectOwner;
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
-
-  Path := Path + '\' + ObjectType;
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
-
-  Path := Path + '\' + ObjectName;
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
-
-  Path := Path + '\' + Time;
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
-
-  Path := Path + '\' + AtionType;
-  if not DirectoryExists(Path) then
-    ForceDirectories(Path);
-
-  Filename := Path + '\' + ObjectName + '.' + FileExt;
+  Filename := Path + '\' + SafeName(ObjectName) + '.' + FileExt;
 
   with TStringList.Create do
     try
-      Add(ObjectSource);
+      Text := ObjectSource;
       SaveToFile(Filename);
     finally
       Free;
     end;
-
-  //try
-  //  AssignFile(myFile, Filename);
-  //  Write(myFile, ObjectSource);
-  //  CloseFile(myFile);
-  //except
-
-  //end;
 end;
 
-function GetPrefPath(): AnsiString;
-var
-  APath: AnsiString;
+function GetPrefPath(): String;
 begin
-  Result := '';
-  APath := IDE_GetPrefAsString(PlugInID, '', 'path', '');
-  if APath = '' then
+  Result := Trim(String(IDE_GetPrefAsString(PlugInID, '', 'path', '')));
+  if Result = '' then
   begin
-    if MessageDlg('The path to save the files is not specified.' + #10#13 +
-      'Specify now?', mtConfirmation, [mbYes, mbNo, mbCancel], 0) = mrYes
+    if MessageDlg('The path to save the files is not specified.' + #13#10 +
+      'Specify now?', mtConfirmation, [mbYes, mbNo], 0) = mrYes
     then
     begin
       DoPreferences;
-      GetPrefPath();
+      Result := Trim(String(IDE_GetPrefAsString(PlugInID, '', 'path', '')));
     end;
   end;
-  Result := APath;
 end;
 
 // OnActivate gets called after OnCreate. However, when OnActivate is called PL/SQL
@@ -225,7 +206,7 @@ end;
 // influence the closing of the window with the following return values:
 // 0 = Default behavior
 // 1 = Ask the user for confirmation (like the contents was changed)
-// 2 = Don’t ask, allow to close without confirmation
+// 2 = Don't ask, allow to close without confirmation
 // The Changed Boolean indicates the current status of the window.
 
 function OnWindowClose(WindowType: Integer; Changed: Bool): Integer; cdecl;
@@ -237,9 +218,9 @@ end;
 // dialog yourself (in which case you should return an empty text) or just return the
 // about text.
 
-function About: PChar; cdecl;
+function About: PAnsiChar; cdecl;
 begin
-  Result := 'AutoSavePlugin - x64';
+  Result := PAnsiChar(AboutText);
 end;
 
 // If the Plug-In has a configure dialog you could use this function to activate it. This will

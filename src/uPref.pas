@@ -6,7 +6,7 @@ interface
 
 uses
   Windows, SysUtils, Classes, Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, PlugInIntf, Vcl.ExtCtrls,
-  ShlObj, Vcl.Buttons;
+  ShlObj, ActiveX, Vcl.Buttons;
 
 type
   TfrmPref = class(TForm)
@@ -32,20 +32,24 @@ implementation
 procedure DoPreferences;
 begin
   with TfrmPref.Create(Application) do
-  begin
-    if ShowModal = mrOK then
-    begin
-      IDE_SetPrefAsString(PlugInID, '', 'path',
-        PAnsiChar(AnsiString(edPath.Text)));
+    try
+      if ShowModal = mrOK then
+      begin
+        IDE_SetPrefAsString(PlugInID, '', 'path',
+          PAnsiChar(AnsiString(Trim(edPath.Text))));
+      end;
+    finally
+      Free;
     end;
-    Free;
-  end;
-//frmPref := nil;
 end;
 
 procedure TfrmPref.btnSelectPathClick(Sender: TObject);
+var
+  Folder: string;
 begin
-  edPath.Text := GetFolder;
+  Folder := GetFolder;
+  if Folder <> '' then
+    edPath.Text := Folder;
 end;
 
 procedure TfrmPref.FormCreate(Sender: TObject);
@@ -60,6 +64,7 @@ var
   DisplayName: array [0 .. MAX_PATH] of char;
   TempPath: array [0 .. MAX_PATH] of char;
 begin
+  Result := '';
   FillChar(BrowseInfo, sizeof(TBrowseInfo), #0);
   BrowseInfo.hwndOwner := Self.Handle;
   BrowseInfo.pszDisplayName := @DisplayName;
@@ -68,11 +73,10 @@ begin
   lpItemID := SHBrowseForFolder(BrowseInfo);
   if lpItemID <> nil then
   begin
-    SHGetPathFromIDList(lpItemID, TempPath);
-    result := TempPath;
-    GlobalFreePtr(lpItemID);
+    if SHGetPathFromIDList(lpItemID, TempPath) then
+      Result := TempPath;
+    CoTaskMemFree(lpItemID);
   end;
-
 end;
 
 end.
